@@ -186,65 +186,52 @@ inline int decodeblock_tail(const uint8_t in[4], uint8_t out[3])
 static ERL_NIF_TERM decode(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
 
-    ErlNifBinary data;
-    ErlNifBinary buf;
-    uint8_t *buf_data;
-    int buf_size;
-    ERL_NIF_TERM ret, data_ret;
-    size_t it, it_b64;
+    ErlNifBinary encoded_binary;
+    uint8_t *decoded_data;
+    int decoded_size = 0;
+    ERL_NIF_TERM result_term;
+    size_t it = 0, it_b64 = 0;
     size_t timeslice;
 
-    if ( enif_inspect_binary(env, argv[0], &data) ) {
-        data_ret = argv[0];
-    } else if ( enif_inspect_iolist_as_binary(env, argv[0], &data) ) {
-        data_ret = enif_make_binary(env, &data);
+    if (argc != 1){
+        return enif_make_badarg(env);
+    }
+
+    if ( enif_inspect_binary(env, argv[0], &encoded_binary) ) {
+        if (encoded_binary.size == 0 ){
+           return argv[0];
+        }
     } else {
         return enif_make_badarg(env);
     }
 
-    if ( data.size == 0 )
-        return argv[0];
-
-    if ( enif_inspect_binary(env, argv[1], &buf) ) {
-        ret = argv[1];
-        buf_data = buf.data;
-    } else {
-        size_t buf_size = data.size/4*3
-            - (data.data[data.size - 1] == '=' ? 1 : 0)
-            - (data.data[data.size - 2] == '=' ? 1 : 0);
-        buf_data = enif_make_new_binary(env, buf_size, &ret);
-    }
-
-    if ( !enif_get_int(env, argv[2], &buf_size) )
-        return enif_make_badarg(env);
-
-    it = buf_size;
-    it_b64 = buf_size / 3 * 4;
+    size_t result_size = encoded_binary.size / 4 * 3
+                       - (encoded_binary.data[encoded_binary.size - 1] == '=' ? 1 : 0)
+                       - (encoded_binary.data[encoded_binary.size - 2] == '=' ? 1 : 0);
+    decoded_data = enif_make_new_binary(env, result_size , &result_term);
 
     do {
-        for (; it_b64 < data.size - 4 && it < buf_size + ITER * 4; it += 3, it_b64 += 4)
-            if ( decodeblock(data.data + it_b64, buf_data + it) )
-                goto BADARG;
-        timeslice = 10 * (it - buf_size) / 4 / ITER;
-        buf_size = it;
-    } while ( !enif_consume_timeslice(env, timeslice) && (it_b64 + 4 < data.size));
-    if (it_b64 + 4 < data.size) {
-        return enif_make_tuple3(env, data_ret, ret, enif_make_int(env, buf_size));
-    }
-    if ( decodeblock_tail(data.data + it_b64, buf_data + it) )
-        goto BADARG;
-    return ret;
-
-BADARG:
-    enif_release_binary(&buf);
-    return enif_make_badarg(env);
+        for (; it_b64 < encoded_binary.size - 4 && it < ITER * 4; it += 3, it_b64 += 4)
+            if ( decodeblock(encoded_binary.data + it_b64, decoded_data + it) )
+                return enif_make_badarg(env);
+        timeslice = 10 * (it - decoded_size) / 4 / ITER;
+        decoded_size = it;
+        enif_consume_timeslice(env, timeslice);
+    } while ( it_b64 + 4 < encoded_binary.size );
+    if ( decodeblock_tail(encoded_binary.data + it_b64, decoded_data + it) )
+        return enif_make_badarg(env);
+    return result_term;
 }
 
-
+static int
+upgrade(ErlNifEnv* env, void** priv, void** old_priv, ERL_NIF_TERM info)
+{
+    return 0;
+}
 
 static ErlNifFunc nif_funcs[] =
 {
     {"nif_encode", 3, encode},
-    {"nif_decode", 3, decode}
+    {"nif_decode", 1, decode}
 };
-ERL_NIF_INIT(cbase64, nif_funcs, NULL, NULL, NULL, NULL)
+ERL_NIF_INIT(cbase64, nif_funcs, NULL, NULL, &upgrade, NULL)
