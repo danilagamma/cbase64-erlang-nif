@@ -39,34 +39,32 @@ on_load() ->
     SoName = filename:join(BaseDir, atom_to_list(?MODULE)),
     erlang:load_nif(SoName, 0).
 
+-define(ENCODE_CHUNK, (6 * 1024)).
+-define(DECODE_CHUNK, (8 * 1024)).
 
--spec encode(binary() | iolist()) -> binary().
+-spec encode(binary()) -> binary().
 encode(Data) ->
-    encode(Data, undefined, 0).
+    encode_iter(Data, <<>>).
 
--spec encode(binary() | iolist(), binary() | undefined,
-        non_neg_integer()) -> binary().
-encode(Data, Buf, BufSize) ->
-    case nif_encode(Data, Buf, BufSize) of
-        {Data0, Buf0, BufSize0} ->
-            encode(Data0, Buf0, BufSize0);
-        Buf0 ->
-            Buf0
-    end.
+encode_iter(<<Data:?ENCODE_CHUNK/binary, Rest/binary>>, Acc) ->
+    Encoded =  nif_encode(Data),
+    encode_iter(Rest, <<Acc/binary, Encoded/binary>>);
+encode_iter(Data, Acc) ->
+    <<Acc/binary, (nif_encode(Data))/binary>>.
+
 
 -spec decode(binary()) -> binary().
 decode(Data) ->
     decode_iter(Data, <<>>).
 
-decode_iter(<<Data:10000/binary, Rest/binary>>, Acc) ->
+decode_iter(<<Data:?DECODE_CHUNK/binary, Rest/binary>>, Acc) ->
     Decoded = nif_decode(Data),
     decode_iter(Rest, <<Acc/binary, Decoded/binary>>);
 decode_iter(Data, Acc) ->
     <<Acc/binary, (nif_decode(Data))/binary>>.
 
--spec nif_encode(binary() | iolist(), binary() | undefined, non_neg_integer()) ->
-        binary() | {binary(), binary(), non_neg_integer()}.
-nif_encode(_Data, _Buf, _Size) ->
+-spec nif_encode(binary()) -> binary().
+nif_encode(_Data) ->
     erlang:nif_error(not_loaded, [{module, ?MODULE}, {line, ?LINE}]).
 
 -spec nif_decode(binary()) -> binary().

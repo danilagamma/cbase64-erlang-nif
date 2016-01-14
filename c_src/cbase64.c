@@ -51,45 +51,37 @@ inline void encodeblock(const uint8_t in[3], uint8_t out[4], size_t len)
 
 static ERL_NIF_TERM encode(ErlNifEnv* env, int argc, const ERL_NIF_TERM argv[])
 {
-    ErlNifBinary data;
-    ErlNifBinary buf;
-    uint8_t *buf_data;
-    int buf_size;
-    ERL_NIF_TERM ret, data_ret;
-    size_t it, it_b64;
+    ErlNifBinary binary_to_encode;
+    uint8_t *encoded_data;
+    int encoded_size = 0;
+    ERL_NIF_TERM result_term;
+    size_t it = 0, it_b64 = 0;
     size_t timeslice;
 
-    if ( enif_inspect_binary(env, argv[0], &data) ) {
-        data_ret = argv[0];
-    } else if ( enif_inspect_iolist_as_binary(env, argv[0], &data) ) {
-        data_ret = enif_make_binary(env, &data);
+    if (argc != 1){
+        return enif_make_badarg(env);
+    }
+
+    if ( enif_inspect_binary(env, argv[0], &binary_to_encode) ) {
+        if (binary_to_encode.size == 0 ){
+           return argv[0];
+        }
     } else {
         return enif_make_badarg(env);
     }
 
-    if ( enif_inspect_binary(env, argv[1], &buf) ) {
-        ret = argv[1];
-        buf_data = buf.data;
-    } else {
-        size_t buf_size = ( data.size + 2 ) / 3 * 4;
-        buf_data = enif_make_new_binary(env, buf_size, &ret);
-    }
+    size_t result_size = ( binary_to_encode.size + 2 ) / 3 * 4;
+    encoded_data = enif_make_new_binary(env, result_size, &result_term);
 
-    if ( !enif_get_int(env, argv[2], &buf_size) )
-        return enif_make_badarg(env);
-
-    it = buf_size / 4 * 3;
-    it_b64 = buf_size;
     do {
-        for (; it < data.size && it_b64 < buf_size + ITER * 4; it += 3, it_b64 += 4)
-            encodeblock(data.data + it, buf_data + it_b64, min(data.size-it, 3));
-        timeslice = 10 * (it_b64 - buf_size) / 4 / ITER;
-        buf_size = it_b64;
-    } while ( !enif_consume_timeslice(env, timeslice) && (it + 3 < data.size));
+        for (; it < binary_to_encode.size && it_b64 < encoded_size + ITER * 4; it += 3, it_b64 += 4)
+            encodeblock(binary_to_encode.data + it, encoded_data + it_b64, min(binary_to_encode.size-it, 3));
+        timeslice = 10 * (it_b64 - encoded_size) / 4 / ITER;
+        encoded_size = it_b64;
+        enif_consume_timeslice(env, timeslice);
+    } while ( it + 3 < binary_to_encode.size );
 
-    if (it + 3 < data.size)
-        return enif_make_tuple3(env, data_ret, ret, enif_make_int(env, buf_size));
-    return ret;
+    return result_term;
 }
 
 
@@ -231,7 +223,7 @@ upgrade(ErlNifEnv* env, void** priv, void** old_priv, ERL_NIF_TERM info)
 
 static ErlNifFunc nif_funcs[] =
 {
-    {"nif_encode", 3, encode},
+    {"nif_encode", 1, encode},
     {"nif_decode", 1, decode}
 };
 ERL_NIF_INIT(cbase64, nif_funcs, NULL, NULL, &upgrade, NULL)
