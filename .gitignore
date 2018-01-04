@@ -1,7 +1,10 @@
 *.o
 *.beam
 *.so
+*.d
 .eunit/
 ebin/
 priv/
 deps/
+_build/
+rebar.lock
